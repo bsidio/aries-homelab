@@ -1,3 +1,4 @@
+# yamllint disable rule:line-length
 # Encrypt any file ending with .enc.yaml or named secrets.yaml
 creation_rules:
   - path_regex: (secrets\.yaml|.*\.enc\.yaml)$

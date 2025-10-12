@@ -1,0 +1,28 @@
+# macOS noise
+.DS_Store
+
+# Python & venvs
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Ansible artifacts
+*.retry
+*.log
+
+# Secrets / credentials
+**/secrets*.yaml
+**/secrets/**
+**/credentials-*.*
+**/cloud-credentials*
+**/.env
+*.age.key
+*.pem
+*.key
+
+# Kube/configs and cluster state
+kubeconfig
+**/kubeconfig
+**/*.kubeconfig
+**/tmp/

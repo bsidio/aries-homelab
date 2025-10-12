@@ -1,0 +1,5 @@
+# Encrypt any file ending with .enc.yaml or named secrets.yaml
+creation_rules:
+  - path_regex: (secrets\.yaml|.*\.enc\.yaml)$
+    encrypted_regex: '^(data|stringData|credentials|values|secret|accessKey|secretKey)$'
+    age: ["age175xnehnljmet4v6fhj6sxguehgjz4ufxxsvmv5t9ztf9tggxlprsjt8vd7"]

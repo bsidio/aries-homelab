@@ -1,0 +1,79 @@
+- name: Install k3s (init on aries1)
+  hosts: aries1
+  become: true
+  gather_facts: true
+  vars_files:
+    - ../group_vars/aries.yml
+    - ../group_vars/all.yml
+  tasks:
+    - name: Install k3s (cluster-init)
+      ansible.builtin.shell: |
+        set -o pipefail
+        curl -sfL https://get.k3s.io | \
+          INSTALL_K3S_VERSION="{{ k3s_version }}" \
+          INSTALL_K3S_EXEC="server --cluster-init {{ k3s_exec_extra }} \
+            --cluster-cidr {{ cluster_cidr }} --service-cidr {{ service_cidr }}" \
+          sh -
+      args:
+        creates: /usr/local/bin/k3s
+        executable: /bin/bash
+
+    - name: Read node-token
+      ansible.builtin.slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: nodetoken
+
+    - name: Ensure artifacts directory exists
+      delegate_to: localhost
+      become: false
+      ansible.builtin.file:
+        path: ./artifacts
+        state: directory
+        mode: "0755"
+
+    - name: Save token locally
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        content: "{{ nodetoken.content | b64decode }}"
+        dest: ./artifacts/k3s_node_token.txt
+        mode: "0600"
+
+- name: Join other control-planes
+  hosts: aries2,aries3
+  become: true
+  gather_facts: true
+  vars_files:
+    - ../group_vars/aries.yml
+    - ../group_vars/all.yml
+  tasks:
+    - name: Read token from artifacts
+      delegate_to: localhost
+      become: false
+      ansible.builtin.slurp:
+        src: ./artifacts/k3s_node_token.txt
+      register: localtoken
+
+    - name: Install k3s server (join)
+      ansible.builtin.shell: |
+        set -o pipefail
+        export K3S_URL="https://{{ k3s_primary_ip }}:6443"
+        export K3S_TOKEN="{{ localtoken.content | b64decode | trim }}"
+        curl -sfL https://get.k3s.io | \
+          INSTALL_K3S_VERSION="{{ k3s_version }}" \
+          INSTALL_K3S_EXEC="server {{ k3s_exec_extra }} \
+            --cluster-cidr {{ cluster_cidr }} --service-cidr {{ service_cidr }}" \
+          sh -
+      args:
+        creates: /usr/local/bin/k3s
+        executable: /bin/bash
+
+- name: Post-install helpers
+  hosts: aries
+  become: true
+  tasks:
+    - name: Symlink kubectl
+      ansible.builtin.file:
+        src: /usr/local/bin/k3s
+        dest: /usr/local/bin/kubectl
+        state: link

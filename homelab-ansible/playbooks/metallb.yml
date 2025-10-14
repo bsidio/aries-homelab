@@ -1,0 +1,80 @@
+- name: Install & configure MetalLB on aries
+  hosts: localhost
+  gather_facts: false
+  become: false
+  vars:
+    kubeconfig_path: "{{ playbook_dir }}/artifacts/kubeconfig"
+    # Pick a free range on your LAN (outside DHCP)
+    metallb_ip_range: "10.0.0.200-10.0.0.220"
+  tasks:
+    - name: Apply MetalLB core (CRDs + controllers)
+      ansible.builtin.shell: |
+        set -o pipefail
+        kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      args:
+        executable: /bin/bash
+      changed_when: true
+      register: apply_out
+
+    - name: Wait for MetalLB pods to be ready
+      ansible.builtin.shell: |
+        set -o pipefail
+        kubectl -n metallb-system wait --for=condition=Available --timeout=180s deployment/controller
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      args:
+        executable: /bin/bash
+      changed_when: false
+      register: wait_out
+      failed_when: wait_out.rc != 0
+
+    - name: Create MetalLB configuration
+      ansible.builtin.copy:
+        dest: /tmp/metallb-ip-pool.yaml
+        content: |
+          apiVersion: metallb.io/v1beta1
+          kind: IPAddressPool
+          metadata:
+            name: aries-pool
+            namespace: metallb-system
+          spec:
+            addresses:
+              - "{{ metallb_ip_range }}"
+          ---
+          apiVersion: metallb.io/v1beta1
+          kind: L2Advertisement
+          metadata:
+            name: aries-l2
+            namespace: metallb-system
+          spec: {}
+        mode: "0644"
+      delegate_to: localhost
+
+    - name: Apply pool + L2Advertisement
+      ansible.builtin.shell: |
+        set -o pipefail
+        kubectl apply -f /tmp/metallb-ip-pool.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      args:
+        executable: /bin/bash
+      changed_when: true
+      register: pool_out
+
+    - name: Show MetalLB resources (debug)
+      ansible.builtin.shell: |
+        set -o pipefail
+        kubectl -n metallb-system get all && \
+        kubectl -n metallb-system get ipaddresspools,l2advertisements
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      args:
+        executable: /bin/bash
+      changed_when: false
+      register: debug_out
+
+    - name: Display MetalLB resources
+      ansible.builtin.debug:
+        var: debug_out.stdout

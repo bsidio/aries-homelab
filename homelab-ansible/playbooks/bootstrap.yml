@@ -1,0 +1,133 @@
+- name: Bootstrap homelab nodes
+  hosts: aries
+  become: true
+  gather_facts: true
+
+  vars:
+    ansible_admin_user: ubuntu
+    common_packages:
+      - curl
+      - jq
+      - htop
+      - vim
+      - git
+      - ntp
+      - python3
+      - python3-venv
+      - python3-pip
+      - apt-transport-https
+      - ca-certificates
+      - nfs-common
+      - open-iscsi
+      - multipath-tools
+    sysctl_tweaks:
+      "vm.swappiness": "10"
+      "fs.inotify.max_user_watches": "524288"
+      "fs.inotify.max_user_instances": "1024"
+      "net.ipv4.ip_forward": "1"
+
+  pre_tasks:
+    - name: Ensure apt cache is up to date (Debian/Ubuntu)
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+  tasks:
+    - name: Create admin group
+      ansible.builtin.group:
+        name: admin
+        state: present
+
+    - name: Create ansible admin user
+      ansible.builtin.user:
+        name: "{{ ansible_admin_user }}"
+        groups: "sudo,admin"
+        append: true
+        shell: /bin/bash
+        create_home: true
+
+    - name: Authorize controller SSH key for ansible user
+      ansible.builtin.lineinfile:
+        path: "/home/{{ ansible_admin_user }}/.ssh/authorized_keys"
+        line: "{{ lookup('file', lookup('env','HOME') + '/.ssh/homelab_ed25519.pub') }}"
+        create: true
+        mode: '0600'
+        owner: "{{ ansible_admin_user }}"
+        group: "{{ ansible_admin_user }}"
+
+    - name: Passwordless sudo for admin group
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/99-admin-nopasswd
+        content: |
+          %admin ALL=(ALL) NOPASSWD:ALL
+        mode: '0440'
+
+    - name: Install base packages
+      ansible.builtin.apt:
+        name: "{{ common_packages }}"
+        state: present
+
+    - name: Enable and start iSCSI services (Longhorn)
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop:
+        - iscsid
+        - multipath-tools
+
+    - name: Apply sysctl tuning
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: true
+      loop: "{{ sysctl_tweaks|dict2items }}"
+
+    - name: Set timezone to UTC (optional but recommended)
+      community.general.timezone:
+        name: UTC
+
+    - name: Create /etc/modules-load.d for Longhorn/k8s niceties
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/k8s.conf
+        content: |
+          br_netfilter
+          overlay
+        mode: '0644'
+      notify: Reload modules
+
+    - name: Ensure kernel params for bridged traffic
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/99-k8s.conf
+        content: |
+          net.bridge.bridge-nf-call-iptables = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+        mode: '0644'
+      notify: Reload sysctl
+
+    - name: Add hostnames (optional; adjust as desired)
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        create: true
+        line: "{{ item }}"
+        state: present
+        mode: '0644'
+      loop:
+        - "10.0.0.233 aries1"
+        - "10.0.0.119 aries2"
+        - "10.0.0.140 aries3"
+
+  handlers:
+    - name: Reload modules
+      ansible.builtin.shell: |
+        set -o pipefail
+        modprobe br_netfilter || true
+        modprobe overlay || true
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Reload sysctl
+      ansible.builtin.command: sysctl --system
+      changed_when: true

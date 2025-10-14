@@ -1,0 +1,31 @@
+---
+# ansible-lint configuration
+profile: production
+
+# Exclude specific paths
+exclude_paths:
+  - .cache/
+  - .git/
+  - artifacts/
+
+# Skip specific rules
+skip_list:
+  - yaml[line-length]  # Allow long lines in some cases
+  - name[casing]       # Allow flexible task naming
+
+# Warn only (don't fail) for these rules
+warn_list:
+  - experimental
+  - role-name
+
+# Enable offline mode to avoid dependency checks
+offline: false
+
+# Required collections - comment out if not installed
+# This allows the playbooks to reference these collections
+# even if they're not installed on the linting machine
+mock_modules:
+  - ansible.posix.sysctl
+  - community.general.timezone
+
+mock_roles: []

@@ -1,3 +1,4 @@
+---
 - name: Bootstrap homelab nodes
   hosts: aries
   become: true
@@ -49,7 +50,9 @@
     - name: Authorize controller SSH key for ansible user
       ansible.builtin.lineinfile:
         path: "/home/{{ ansible_admin_user }}/.ssh/authorized_keys"
-        line: "{{ lookup('file', lookup('env','HOME') + '/.ssh/homelab_ed25519.pub') }}"
+        line: >-
+          {{ lookup('file',
+          lookup('env','HOME') + '/.ssh/homelab_ed25519.pub') }}
         create: true
         mode: '0600'
         owner: "{{ ansible_admin_user }}"
@@ -77,16 +80,21 @@
         - multipath-tools
 
     - name: Apply sysctl tuning
-      ansible.posix.sysctl:
-        name: "{{ item.key }}"
-        value: "{{ item.value }}"
-        state: present
-        reload: true
+      ansible.builtin.lineinfile:
+        path: /etc/sysctl.conf
+        regexp: "^{{ item.key }}\\s*="
+        line: "{{ item.key }} = {{ item.value }}"
+        create: true
+        mode: '0644'
       loop: "{{ sysctl_tweaks|dict2items }}"
+      notify: Reload sysctl
 
     - name: Set timezone to UTC (optional but recommended)
-      community.general.timezone:
-        name: UTC
+      ansible.builtin.file:
+        src: /usr/share/zoneinfo/UTC
+        dest: /etc/localtime
+        state: link
+        force: true
 
     - name: Create /etc/modules-load.d for Longhorn/k8s niceties
       ansible.builtin.copy:
